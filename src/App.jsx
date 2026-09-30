@@ -409,6 +409,14 @@ export default function App() {
           )}
           <footer>
             <span>© {new Date().getFullYear()} DoubleDB 工具箱</span>
+            <a
+              className="icp-link"
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              浙ICP备2026079328号
+            </a>
             <span>少一点重复，多一点专注。</span>
           </footer>
         </main>

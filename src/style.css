@@ -485,11 +485,25 @@ kbd {
   white-space: nowrap;
 }
 footer {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
   font-size: 12px;
   color: var(--muted);
   padding: 29px 0;
+}
+footer > span:last-child {
+  text-align: right;
+}
+.icp-link {
+  text-align: center;
+  white-space: nowrap;
+  text-underline-offset: 3px;
+}
+.icp-link:hover {
+  color: var(--blue);
+  text-decoration: underline;
 }
 .empty {
   padding: 70px 20px;
@@ -1058,8 +1072,11 @@ input.control {
     display: none;
   }
   footer {
-    font-size: 11px;
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    font-size: 12px;
+    gap: 8px;
     line-height: 1.7;
   }
   .workspace {
