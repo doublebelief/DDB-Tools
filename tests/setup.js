@@ -32,3 +32,30 @@ Object.defineProperty(globalThis, "localStorage", {
     clear: () => storage.clear(),
   },
 });
+
+// DOM tests use deterministic workers; real module-worker processing is covered in worker.test.js.
+class TestWorker {
+  constructor(url) {
+    this.url = String(url);
+    this.stopped = false;
+  }
+  async postMessage(data) {
+    try {
+      const result = this.url.includes("regex.worker")
+        ? (await import("../src/regex-engine.js")).evaluateRegex(data)
+        : {
+            result: (await import("../src/compute-task.js")).computeTask(
+              data.type,
+              data.args,
+            ),
+          };
+      if (!this.stopped) this.onmessage?.({ data: result });
+    } catch (e) {
+      if (!this.stopped) this.onmessage?.({ data: { error: e.message } });
+    }
+  }
+  terminate() {
+    this.stopped = true;
+  }
+}
+globalThis.Worker = TestWorker;

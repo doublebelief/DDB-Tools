@@ -1,3 +1,4 @@
+import LoadBoundary from "./LoadBoundary.jsx";
 import React, { useEffect, useRef, useState, Suspense, lazy } from "react";
 import {
   Code2,
@@ -74,7 +75,11 @@ const readPref = (key, fallback) => {
   }
 };
 function currentRoute() {
-  return decodeURIComponent(location.pathname.split("/")[1] || "");
+  try {
+    return decodeURIComponent(location.pathname.split("/")[1] || "");
+  } catch {
+    return "invalid-route";
+  }
 }
 export default function App() {
   const [route, setRoute] = useState(currentRoute),
@@ -298,9 +303,11 @@ export default function App() {
             )}
           </div>
           {tool ? (
-            <Suspense fallback={<div className="empty">正在加载工具…</div>}>
-              <Workspace key={tool.id} id={tool.id} />
-            </Suspense>
+            <LoadBoundary key={tool.id}>
+              <Suspense fallback={<div className="empty">正在加载工具…</div>}>
+                <Workspace key={tool.id} id={tool.id} />
+              </Suspense>
+            </LoadBoundary>
           ) : route ? (
             <div className="empty">
               <h2>没有找到这个工具</h2>

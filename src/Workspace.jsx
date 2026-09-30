@@ -1,5 +1,6 @@
+import { useCompute } from "./compute-client.js";
+import { assertText, LIMITS } from "./limits.js";
 import React, { useEffect, useRef, useState } from "react";
-import { marked } from "marked";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -8,7 +9,6 @@ import sql from "highlight.js/lib/languages/sql";
 import bash from "highlight.js/lib/languages/bash";
 import python from "highlight.js/lib/languages/python";
 import QRCode from "qrcode";
-import { diffLines } from "diff";
 import {
   Editor,
   ErrorBox,
@@ -70,10 +70,12 @@ function Tree({ value, name = "root", depth = 0 }) {
   );
 }
 function JsonTool() {
+  const compute = useCompute();
   const [input, setInput] = useState(SAMPLE_JSON),
     [output, setOutput] = useState(lib.jsonFormat(SAMPLE_JSON)),
     [view, setView] = useState("text"),
     [tree, setTree] = useState(lib.parse(SAMPLE_JSON)),
+    [treeAvailable, setTreeAvailable] = useState(true),
     [status, setStatus] = useState("");
   const { run, error } = useAction();
   useEffect(() => {
@@ -99,12 +101,17 @@ function JsonTool() {
           execute: async (args) => {
             if (
               typeof args?.text !== "string" ||
-              args.text.length > 1000000 ||
+              args.text.length > LIMITS.input ||
               ("compact" in args && typeof args.compact !== "boolean")
             )
-              throw new Error("输入须为不超过 1 MB 的 JSON 文本");
-            const formatted = lib.jsonFormat(args.text, args.compact === true);
-            const value = lib.parse(args.text);
+              throw new Error("输入须为不超过 200,000 个字符的 JSON 文本");
+            const result = await compute("json", {
+              input: args.text,
+              compact: args.compact === true,
+            });
+            const formatted = result.text;
+            const value = result.treeAvailable ? lib.parse(args.text) : null;
+            setTreeAvailable(result.treeAvailable);
             setInput(args.text);
             setOutput(formatted);
             setTree(value);
@@ -116,12 +123,16 @@ function JsonTool() {
       ),
     ).catch(() => {});
     return () => lifecycle.abort();
-  }, []);
+  }, [compute]);
   function process(mode) {
-    run(() => {
-      const value = lib.parse(input);
-      setTree(value);
-      setOutput(lib.jsonFormat(input, mode === "compact"));
+    run(async () => {
+      const result = await compute("json", {
+        input,
+        compact: mode === "compact",
+      });
+      setTreeAvailable(result.treeAvailable);
+      setTree(result.treeAvailable ? lib.parse(input) : null);
+      setOutput(result.text);
       setStatus(mode === "validate" ? "JSON 语法正确；大整数原样保留。" : "");
     });
   }
@@ -146,7 +157,11 @@ function JsonTool() {
         <Editor label="JSON 结果" value={output} filename="formatted.json">
           {view === "tree" ? (
             <div className="tree">
-              <Tree value={tree} />
+              {treeAvailable ? (
+                <Tree value={tree} />
+              ) : (
+                <p>树形视图最多显示 2,000 个节点，请使用文本结果。</p>
+              )}
             </div>
           ) : null}
         </Editor>
@@ -198,8 +213,11 @@ function CodecTool() {
         </Button>
         <Button
           onClick={() => {
-            setInput(output);
-            setOutput(input);
+            run(() => {
+              assertText(output);
+              setInput(output);
+              setOutput(input);
+            });
           }}
         >
           交换输入与结果
@@ -572,17 +590,27 @@ function RegexTool() {
       setBusy(false);
       return;
     }
-    if (text.length > 100000) {
-      setError("正则测试文本上限为 100,000 个字符");
+    try {
+      assertText(text, LIMITS.regexText, "测试文本");
+      assertText(pattern, LIMITS.pattern, "表达式");
+      assertText(replacement, LIMITS.replacement, "替换内容");
+    } catch (e) {
+      setError(e.message);
       setBusy(false);
       return;
     }
     setBusy(true);
     let worker, timer;
     const debounce = setTimeout(() => {
-      worker = new Worker(new URL("./regex.worker.js", import.meta.url), {
-        type: "module",
-      });
+      try {
+        worker = new Worker(new URL("./regex.worker.js", import.meta.url), {
+          type: "module",
+        });
+      } catch {
+        setBusy(false);
+        setError("处理线程加载失败，请保存输入后刷新重试");
+        return;
+      }
       timer = setTimeout(() => {
         worker.terminate();
         setBusy(false);
@@ -622,6 +650,7 @@ function RegexTool() {
       <div className="fields">
         <Field label="表达式（不含两侧 /）">
           <input
+            maxLength={LIMITS.pattern}
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
             spellCheck="false"
@@ -637,6 +666,7 @@ function RegexTool() {
       </div>
       <Editor
         label="测试文本"
+        maxLength={LIMITS.regexText}
         value={text}
         onChange={setText}
         minHeight={160}
@@ -644,6 +674,7 @@ function RegexTool() {
       <div className="fields" style={{ marginTop: 16 }}>
         <Field label="替换内容（支持 $1、$& 等）">
           <input
+            maxLength={LIMITS.replacement}
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
           />
@@ -678,6 +709,7 @@ function RegexTool() {
   );
 }
 function DiffTool() {
+  const compute = useCompute();
   const [left, setLeft] = useState(
       'const site = "DoubleDB";\nconst tools = 10;\nconsole.log(site);\n',
     ),
@@ -693,16 +725,9 @@ function DiffTool() {
         <Button
           primary
           onClick={() =>
-            run(() => {
-              if (left.length + right.length > 100000)
-                throw new Error("对比文本总长度上限为 100,000 个字符");
-              const result = diffLines(left, right, {
-                ignoreWhitespace: ignore,
-                timeout: 1000,
-              });
-              if (!result) throw new Error("差异计算超时，请缩短文本");
-              setParts(result);
-            })
+            run(async () =>
+              setParts(await compute("diff", { left, right, ignore })),
+            )
           }
         >
           比较差异
@@ -896,6 +921,7 @@ function TextTool() {
   );
 }
 function YamlTool() {
+  const compute = useCompute();
   const [input, setInput] = useState(
       "name: DoubleDB\nversion: 1\ntools:\n  - JSON\n  - YAML\nlocalFirst: true\n",
     ),
@@ -920,16 +946,21 @@ function YamlTool() {
         <Button
           primary
           onClick={() =>
-            run(() => setOutput(lib.yamlConvert(input, direction)))
+            run(async () =>
+              setOutput(await compute("yaml", { input, direction })),
+            )
           }
         >
           转换并校验
         </Button>
         <Button
           onClick={() => {
-            setInput(output);
-            setOutput("");
-            setDirection(direction === "toJson" ? "toYaml" : "toJson");
+            run(() => {
+              assertText(output);
+              setInput(output);
+              setOutput("");
+              setDirection(direction === "toJson" ? "toYaml" : "toJson");
+            });
           }}
         >
           反向转换
@@ -967,6 +998,7 @@ function YamlTool() {
   );
 }
 function SqlTool() {
+  const compute = useCompute();
   const [input, setInput] = useState(
       "select u.id,u.name,count(o.id) as orders from users u left join orders o on u.id=o.user_id where u.active=1 group by u.id,u.name order by orders desc;",
     ),
@@ -997,20 +1029,33 @@ function SqlTool() {
         </Field>
         <Button
           primary
-          onClick={() => run(() => setOutput(lib.sqlFormat(input, language)))}
+          onClick={() =>
+            run(async () =>
+              setOutput(await compute("sql", { input, language })),
+            )
+          }
         >
           格式化
         </Button>
         <Button
           onClick={() =>
-            run(() => setOutput(lib.sqlFormat(input, language, true)))
+            run(async () =>
+              setOutput(
+                await compute("sql", { input, language, compact: true }),
+              ),
+            )
           }
         >
           紧凑排版
         </Button>
       </div>
       <div className="editor-grid">
-        <Editor label="SQL 输入" value={input} onChange={setInput} />
+        <Editor
+          label="SQL 输入"
+          value={input}
+          onChange={setInput}
+          maxLength={LIMITS.sql}
+        />
         <Editor label="格式化结果" value={output} filename="formatted.sql" />
       </div>
       <ErrorBox error={error} />
@@ -1122,8 +1167,7 @@ function CronTool() {
     </>
   );
 }
-function markdownHtml(input) {
-  const html = marked.parse(input, { gfm: true, breaks: false });
+function sanitizeMarkdown(html) {
   const safe = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: [
@@ -1141,7 +1185,7 @@ function markdownHtml(input) {
   const doc = new DOMParser().parseFromString(safe, "text/html");
   doc.querySelectorAll("pre code").forEach((el) => {
     const lang = el.className.replace("language-", "");
-    if (hljs.getLanguage(lang))
+    if (el.textContent.length <= 10000 && hljs.getLanguage(lang))
       el.innerHTML = hljs.highlight(el.textContent, { language: lang }).value;
   });
   doc.querySelectorAll("a").forEach((a) => {
@@ -1151,33 +1195,42 @@ function markdownHtml(input) {
   return doc.body.innerHTML;
 }
 function MarkdownTool() {
+  const compute = useCompute();
   const [input, setInput] = useState(SAMPLE_MD),
     [html, setHtml] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => {
+    let active = true;
+    const t = setTimeout(async () => {
       try {
-        if (input.length > 200000) throw new Error("预览上限为 200,000 个字符");
-        setHtml(markdownHtml(input));
-        setError("");
+        const raw = await compute("markdown", { input });
+        if (active) {
+          setHtml(sanitizeMarkdown(raw));
+          setError("");
+        }
       } catch (e) {
-        setHtml("");
-        setError(e.message);
+        if (active && e.name !== "AbortError") {
+          setHtml("");
+          setError(e.message);
+        }
       }
     }, 150);
-    return () => clearTimeout(t);
-  }, [input]);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [input, compute]);
   return (
     <>
       <div className="toolbar">
         <Button onClick={() => setInput(SAMPLE_MD)}>载入示例</Button>
         <Button
           primary
-          onClick={() => {
+          onClick={async () => {
             try {
-              if (input.length > 200000)
-                throw new Error("导出上限为 200,000 个字符");
-              const fresh = markdownHtml(input);
+              const fresh = sanitizeMarkdown(
+                await compute("markdown", { input }),
+              );
               download(
                 '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Markdown 文档</title><style>body{max-width:900px;margin:40px auto;padding:20px;font:16px/1.8 system-ui;color:#1b283e}pre{background:#f3f5f8;padding:16px;overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px}blockquote{border-left:3px solid #175cd3;padding-left:16px}a{color:#175cd3}.hljs-keyword,.hljs-selector-tag{color:#d73a49}.hljs-string{color:#032f62}.hljs-number{color:#005cc5}.hljs-comment{color:#6a737d}</style></head><body>' +
                   fresh +
@@ -1200,6 +1253,7 @@ function MarkdownTool() {
           onChange={setInput}
           minHeight={490}
           filename="document.md"
+          maxLength={LIMITS.markdown}
         />
         <div className="editor-panel">
           <div className="panel-title">实时预览</div>

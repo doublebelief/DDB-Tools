@@ -1,3 +1,4 @@
+import { assertText, LIMITS } from "./limits.js";
 import React, { useRef, useState } from "react";
 import { Copy, Check, Download, Upload, Trash2 } from "lucide-react";
 export function download(content, name, type = "text/plain;charset=utf-8") {
@@ -42,15 +43,24 @@ export function Editor({
   minHeight = 340,
   accept = ".txt,.json,.yaml,.yml,.sql,.md,.csv,.log",
   children,
+  maxLength = LIMITS.input,
 }) {
   const ref = useRef(null),
     [error, setError] = useState("");
+  function update(text) {
+    try {
+      assertText(text, maxLength);
+      onChange(text);
+      setError("");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
   async function read(file) {
     try {
       if (!file) return;
       if (file.size > 1024 * 1024) throw new Error("文本文件上限为 1 MB");
-      onChange(await file.text());
-      setError("");
+      update(await file.text());
     } catch (e) {
       setError(e.message);
     }
@@ -120,11 +130,36 @@ export function Editor({
           aria-label={label}
           spellCheck="false"
           value={value}
-          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+          onChange={onChange ? (e) => update(e.target.value) : undefined}
+          onPaste={
+            onChange
+              ? (e) => {
+                  const pasted = e.clipboardData.getData("text");
+                  const el = e.currentTarget;
+                  if (
+                    value.length -
+                      (el.selectionEnd - el.selectionStart) +
+                      pasted.length >
+                    maxLength
+                  ) {
+                    e.preventDefault();
+                    setError(
+                      `输入上限为 ${maxLength.toLocaleString("en-US")} 个字符；原内容已保留`,
+                    );
+                  }
+                }
+              : undefined
+          }
           readOnly={!onChange}
           placeholder={placeholder}
           style={{ minHeight }}
         />
+      )}
+      {onChange && (
+        <div className="input-limit">
+          {value.length.toLocaleString("en-US")} /{" "}
+          {maxLength.toLocaleString("en-US")} 字符
+        </div>
       )}
       {error && <ErrorBox error={error} />}
     </div>
@@ -166,7 +201,8 @@ export function useAction() {
     try {
       await fn();
     } catch (e) {
-      setError(e.message || "处理失败，请检查输入");
+      if (e.name !== "AbortError")
+        setError(e.message || "处理失败，请检查输入");
     } finally {
       setBusy(false);
     }

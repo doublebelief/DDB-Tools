@@ -10,3 +10,7 @@ test-results/
 *.p12
 *.pfx
 *nginx.zip
+
+*.local
+deploy/generated/
+*.bundle

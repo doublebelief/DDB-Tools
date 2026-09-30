@@ -1,4 +1,11 @@
 import {
+  assertText,
+  boundedOutput,
+  checkJsonDepth,
+  checkStructure,
+  LIMITS,
+} from "./limits.js";
+import {
   parse,
   stringify,
   isLosslessNumber,
@@ -9,7 +16,10 @@ import { format } from "sql-formatter";
 import { CronExpressionParser } from "cron-parser";
 export { parse, stringify, isLosslessNumber, isSafeNumber };
 export function jsonFormat(input, compact = false) {
-  return stringify(parse(input), null, compact ? undefined : 2);
+  checkJsonDepth(input);
+  const data = parse(input);
+  checkStructure(data);
+  return boundedOutput(stringify(data, null, compact ? undefined : 2));
 }
 export function toBase64(text) {
   let binary = "";
@@ -27,6 +37,15 @@ export function fromBase64(text, url = false) {
   );
 }
 export function codec(input, type, direction) {
+  return boundedOutput(codecUnchecked(input, type, direction));
+}
+function codecUnchecked(input, type, direction) {
+  assertText(
+    input,
+    type === "unicode" && direction === "encode"
+      ? Math.floor(LIMITS.output / 6)
+      : LIMITS.input,
+  );
   const encode = direction === "encode";
   if (type === "base64") return encode ? toBase64(input) : fromBase64(input);
   if (type === "url")
@@ -66,6 +85,7 @@ export function codec(input, type, direction) {
   throw new Error("未知的编码格式");
 }
 export function jwtDecode(token) {
+  assertText(token, 20000, "JWT");
   const parts = token.trim().split(".");
   if (parts.length !== 3 || !parts[0] || !parts[1])
     throw new Error("JWT 必须包含以点分隔的三个部分");
@@ -163,6 +183,7 @@ export async function digest(data, algorithm, key = null) {
   ).join("");
 }
 export function textTransform(input, mode) {
+  assertText(input);
   const words = input
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
@@ -202,13 +223,17 @@ export function textTransform(input, mode) {
   }
 }
 export function yamlConvert(input, direction) {
+  assertText(input);
   if (direction === "toJson") {
     const doc = parseDocument(input, { uniqueKeys: true, intAsBigInt: true });
     if (doc.errors.length) throw new Error(doc.errors[0].message);
     const value = doc.toJS({ maxAliasCount: 100 });
-    return stringify(value, null, 2);
+    checkStructure(value);
+    return boundedOutput(stringify(value, null, 2));
   }
+  checkJsonDepth(input);
   const data = parse(input);
+  checkStructure(data);
   function convert(v) {
     if (isLosslessNumber(v))
       return /^-?\d+$/.test(v.value)
@@ -223,9 +248,10 @@ export function yamlConvert(input, direction) {
       );
     return v;
   }
-  return yamlStringify(convert(data));
+  return boundedOutput(yamlStringify(convert(data)));
 }
 export function sqlFormat(input, language = "sql", compact = false) {
+  assertText(input, LIMITS.sql, "SQL 输入");
   return format(input, {
     language,
     keywordCase: "upper",
@@ -244,6 +270,7 @@ export function cronNext(
   timezone = "Asia/Shanghai",
   start = new Date(),
 ) {
+  assertText(expression, 256, "Cron 表达式");
   const count = expression.trim().split(/\s+/).length;
   if (count !== 5 && count !== 6)
     throw new Error("请输入 5 位 Cron，或包含秒字段的 6 位 Cron");

@@ -44,45 +44,42 @@ React + Vite；正式环境仅需 Nginx 托管 `dist/`，不需要 Node 常驻�
 
 目录：`src/` 前端、`tests/` 核心与 DOM 交互测试、`deploy/` Nginx 与发布脚本。浏览器支持 `document.modelContext` 时，JSON 页额外暴露 `format_json` 操作；未支持时正常使用页面。其注册和交互已通过模拟上下文测试，未验证原生浏览器 WebMCP 环境。
 
-## ECS 部署
+## 部署
 
-服务器：`deploy@example.invalid`
-
-- 网站版本：`/srv/example-toolbox/releases/<release>`
-- 当前版本符号链接：`/srv/example-toolbox/current`
-- Nginx 入口：`/path/to/example-vhost.conf`
-- 公共站点配置：`/path/to/example-site.conf`
-- `.me` 证书：`/path/to/example-certificates/me/fullchain.pem`、`privkey.key`
-- `.cn` 证书：`/path/to/example-certificates/cn/fullchain.pem`、`privkey.key`
-
-首次安装证书与 `deploy/nginx-https.conf`，然后运行 `nginx -t` 并启动 Nginx。不要将证书、私钥或云平台凭据提交到仓库。
-
-后续发布：
+正式站点由 Nginx 托管。仓库不记录实际服务器地址、登录用户、证书路径或部署目录。所有实际环境值只保存在仓库之外，禁止提交。
 
 ```sh
+# 以下仅为示例；实际值从仓库外的私有环境配置注入。
+export DEPLOY_TARGET=your-ssh-alias
+export DEPLOY_ROOT=/srv/example-toolbox
 ./deploy/deploy.sh
-# 或指定其他 SSH 目标
-DEPLOY_TARGET=deploy@your-server ./deploy/deploy.sh
 ```
 
-脚本先执行测试与构建，再上传新版本并切换链接。旧版本保留。回滚时将 `current` 指回此前发布目录即可，Nginx 配置无需改变。
+部署脚本先测试与构建，再上传版本并切换链接。共享静态资源保留各版本的内容哈希文件，防止旧标签页在新版本发布后加载失败。重载失败会回滚版本链接。共享资源不会自动删除，需监控磁盘占用并按访问情况安排保留策略。
 
-两个域名的 `@` A 记录均指向服务器 IP。安全组需要允许入站 TCP 80/443。证书须与所访问的域名匹配。
-
-## HTTPS 证书更新
-
-当前证书到期时间：**请查看实际证书有效期（Asia/Shanghai）**。当前为手动安装，不包含自动续签。到期前在阿里云续签、下载 Nginx 格式，并替换对应文件；私钥权限保持 `600`。然后：
+Nginx 配置是模板，先在私有环境设置 `SITE_ROOT`、`ASSET_ROOT`、`SITE_SNIPPET`、`TLS_ME_CERT`、`TLS_ME_KEY`、`TLS_CN_CERT`、`TLS_CN_KEY`、`ACME_ROOT`，然后生成到仓库外的私有目录：
 
 ```sh
-nginx -t && systemctl reload nginx
+node deploy/render-nginx.mjs /path/to/private/generated-config
 ```
 
-不要只在阿里云签发新证书而未替换服务器上的文件。若要配置自动续签，可后续接入 ACME 或阿里云证书部署流程。
+其中 `SITE_ROOT` 指向部署根目录下的 `current`，`ASSET_ROOT` 指向同一根目录下的 `shared-assets`。将生成配置安装到服务器实际的 Nginx 配置位置，再执行 `nginx -t` 和 reload。不要直接安装未替换占位符的模板。
+
+证书由运维环境管理，到期前续签并更新部署。模板不包含自动续签功能，也不记录真实证书有效期或存储位置。
+
+## 发布与输入保护
+
+- 旧版静态资源与新版共存；加载失败时提供手动刷新提示，不自动刷新或把输入写入持久存储。
+- JSON、YAML、SQL、差异比较和 Markdown 解析在独立 Worker 中执行，超时 5 秒自动终止；切换工具或开始新计算会取消旧任务。
+- 编辑器拒绝过大的粘贴和文件内容，保留原输入；处理函数再次验证边界，不能通过导入或程序调用绕过。
+- 通用输入上限 20 万字符，输出上限 100 万字符；JSON/YAML 深度上限 64 层、节点上限 1 万，树形视图上限 2,000 节点。
+- SQL 与正则文本上限 10 万字符；Markdown 上限 5 万字符。正则另有 2,000 字符表达式、1 万字符替换模板、1 万次替换、100 个捕获组和 1 秒超时限制。
+- 正则替换逐段检查输出预算，避免一次性构造巨大结果。
 
 ## 边界与隐私
 
 - 主题和收藏按域名隔离；切换工具、刷新或离开页面会丢弃未保存输入。
-- 文本文件导入上限 1 MB；哈希文件上限 50 MB；正则文本上限 10 万字符，运行超时 1 秒；差异文本总长上限 10 万字符；Markdown 上限 20 万字符。
+- 文本文件导入上限 1 MB，并受工具字符数限制；哈希文件上限 50 MB；差异文本总长上限 10 万字符。
 - UUID、哈希和剪贴板依赖安全上下文，请使用 HTTPS（或本机 localhost）。
 - JWT 解析不代表签名可信；SQL 格式化不执行查询，也不替代数据库验证。
 - YAML 转换会移除注释；大整数保留，高精度 JSON 小数转成 YAML 字符串以避免精度丢失。

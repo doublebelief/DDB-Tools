@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TARGET="${DEPLOY_TARGET:-deploy@example.invalid}"
+: "${DEPLOY_TARGET:?Set DEPLOY_TARGET to your SSH host alias or user@host}"
+: "${DEPLOY_ROOT:?Set DEPLOY_ROOT to the private absolute deployment directory}"
+[[ "$DEPLOY_TARGET" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*$ ]] || { echo 'Invalid SSH target'; exit 1; }
+[[ "$DEPLOY_ROOT" =~ ^/[a-zA-Z0-9_/-]+$ && "$DEPLOY_ROOT" != / ]] || { echo 'Invalid deployment directory'; exit 1; }
 RELEASE="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)"
-[[ "$RELEASE" =~ ^[0-9TZ]+-[0-9a-f]+$ ]] || exit 1
 npm ci
 npm test
 npm run test:ui
 npm run build
 ARCHIVE="$(mktemp -t ddb-tools.XXXXXX)"
 trap 'rm -f "$ARCHIVE"' EXIT
-tar -czf "$ARCHIVE" -C dist .
-scp "$ARCHIVE" "$TARGET:/tmp/ddb-tools-$RELEASE.tar.gz"
-ssh "$TARGET" "set -eu; mkdir -p /srv/example-toolbox/releases/$RELEASE; tar -xzf /tmp/ddb-tools-$RELEASE.tar.gz -C /srv/example-toolbox/releases/$RELEASE; chmod -R a+rX /srv/example-toolbox/releases/$RELEASE; ln -sfn /srv/example-toolbox/releases/$RELEASE /srv/example-toolbox/current.next; mv -Tf /srv/example-toolbox/current.next /srv/example-toolbox/current; nginx -t; systemctl reload nginx"
-printf 'Deployed %s\n' "$RELEASE"
+# Python avoids platform-specific tar metadata and includes only public build output.
+python3 - "$ARCHIVE" <<'PY'
+import sys,tarfile
+with tarfile.open(sys.argv[1], 'w:gz') as archive:
+    archive.add('dist', arcname='.')
+PY
+scp "$ARCHIVE" "$DEPLOY_TARGET:/tmp/ddb-tools-$RELEASE.tar.gz"
+ssh "$DEPLOY_TARGET" bash -s -- "$DEPLOY_ROOT" "$RELEASE" < deploy/activate-release.sh
+printf 'Deployment complete.\n'
