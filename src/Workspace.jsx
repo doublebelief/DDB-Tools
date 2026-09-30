@@ -1125,6 +1125,7 @@ function CronTool() {
 function markdownHtml(input) {
   const html = marked.parse(input, { gfm: true, breaks: false });
   const safe = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
     FORBID_TAGS: [
       "style",
       "form",

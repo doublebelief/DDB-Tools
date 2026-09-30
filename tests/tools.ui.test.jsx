@@ -148,14 +148,14 @@ test("Markdown filters scripts, handlers, remote images, and javascript links", 
   render(<Workspace id="markdown" />);
   value(
     "Markdown 输入",
-    '# Test\n<script>alert(1)</script><img src="https://example.com/tracker" onerror="alert(1)"><a href="javascript:alert(1)">bad</a>\n```javascript\nconst x = 1;\n```',
+    '# Test\n<svg><image href="https://example.com/track"/></svg><script>alert(1)</script><img src="https://example.com/tracker" onerror="alert(1)"><a href="javascript:alert(1)">bad</a>\n```javascript\nconst x = 1;\n```',
   );
   await waitFor(() =>
     expect(document.querySelector(".rendered h1")?.textContent).toBe("Test"),
   );
   const root = document.querySelector(".rendered");
   expect(
-    root.querySelector('script,img,[onerror],[href^="javascript:"]'),
+    root.querySelector('script,img,svg,image,[onerror],[href^="javascript:"]'),
   ).toBeNull();
   expect(root.querySelector(".hljs-keyword")).toBeTruthy();
 });
