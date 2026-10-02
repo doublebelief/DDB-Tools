@@ -110,3 +110,5 @@ JSON、JavaScript 正则、SQL、Cron、Markdown 页可使用个人助理。所�
 使用 `deploy/ai.service.template`，在私有输出中替换 `AI_ENV_FILE`、`AI_NODE_BIN`、`AI_SERVER_FILE`、`AI_STATE_NAME`；程序及 Node 运行时放在服务可读目录，环境配置由 systemd 读取。`StateDirectory` 对应目录与 `AI_QUOTA_FILE` 保持一致。服务以动态低权限用户运行，只监听 `127.0.0.1:8787`，由 Nginx `/api/ai/` 代理，不向公网开放此端口。服务没有访问 SSH、执行代码或数据库的工具能力。
 
 启动示例（使用私有环境注入配置）：`node server/ai.mjs`。Nginx 配置包含代理与同域 CSP，安装后执行 `nginx -t`。`deploy/deploy.sh` 只发布静态前端；后端文件和 service 由运维独立更新并重启，保留旧版以便回滚。模型配置变化也需重启服务。不要将实际环境文件、口令、服务器路径或地址放入公共仓库。两个域名的所有登录与发送操作都校验精确来源，禁止跨域 Cookie 复用。
+
+百炼 `qwen3.8-flash` 可设置 `AI_ENABLE_THINKING=false` 使用直接回答模式，减少等待；留空时不发送此可选参数，以兼容其他服务商。仅在服务商支持时设置。北京地域通用完整接口为 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，业务空间专属密钥需配套使用其专属域名。API Key 的地域必须与接口一致，并在百炼控制台为所选模型开启“免费额度用完即停”。

@@ -23,6 +23,9 @@ export function configuration(env = process.env) {
     throw new Error("AI_ACCESS_HASH must be a SHA-256 hex digest");
   if (!env.AI_QUOTA_FILE?.startsWith("/"))
     throw new Error("AI_QUOTA_FILE must be an absolute persistent path");
+  const thinking = env.AI_ENABLE_THINKING || "";
+  if (!["", "true", "false"].includes(thinking))
+    throw new Error("AI_ENABLE_THINKING must be true, false or empty");
   const endpoint = env.AI_ENDPOINT || "";
   if (endpoint) {
     const url = new URL(endpoint);
@@ -38,6 +41,7 @@ export function configuration(env = process.env) {
       );
   }
   return {
+    enableThinking: thinking === "" ? undefined : thinking === "true",
     origins,
     accessHash: env.AI_ACCESS_HASH,
     endpoint,
@@ -290,6 +294,9 @@ export function createAiServer(
             messages,
             stream: true,
             max_tokens: 2048,
+            ...(config.enableThinking === undefined
+              ? {}
+              : { enable_thinking: config.enableThinking }),
           }),
         });
         if (!upstream.ok || !upstream.body)

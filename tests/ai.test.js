@@ -331,3 +331,39 @@ test("AI rejects concurrent requests and aborts upstream on client disconnect", 
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(aborted, true);
 });
+
+test("provider thinking option preserves explicit false and is omitted by default", async (t) => {
+  const base = {
+    AI_ORIGINS: "https://tools.example",
+    AI_QUOTA_FILE: "/tmp/example-quota.json",
+    AI_ACCESS_HASH: config.accessHash,
+  };
+  assert.equal(configuration(base).enableThinking, undefined);
+  assert.equal(
+    configuration({ ...base, AI_ENABLE_THINKING: "false" }).enableThinking,
+    false,
+  );
+  assert.equal(
+    configuration({ ...base, AI_ENABLE_THINKING: "true" }).enableThinking,
+    true,
+  );
+  assert.throws(() => configuration({ ...base, AI_ENABLE_THINKING: "no" }));
+  for (const setting of [undefined, false, true]) {
+    let sent;
+    const { call, login } = await fixture(
+      t,
+      {
+        fetcher: async (_url, init) => {
+          sent = JSON.parse(init.body);
+          return stream([{ choices: [{ delta: { content: "ok" } }] }]);
+        },
+      },
+      { enableThinking: setting },
+    );
+    const response = await call("chat", chat, { Cookie: await login() });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(Object.hasOwn(sent, "enable_thinking"), setting !== undefined);
+    assert.equal(sent.enable_thinking, setting);
+  }
+});
