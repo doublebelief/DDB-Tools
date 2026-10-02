@@ -1,3 +1,4 @@
+import { useAiTool } from "./ai-context.jsx";
 import { useCompute } from "./compute-client.js";
 import { assertText, LIMITS } from "./limits.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -78,6 +79,7 @@ function JsonTool() {
     [treeAvailable, setTreeAvailable] = useState(true),
     [status, setStatus] = useState("");
   const { run, error } = useAction();
+  useAiTool("json", input, setInput);
   useEffect(() => {
     const context = document.modelContext;
     if (!context?.registerTool) return;
@@ -583,6 +585,12 @@ function RegexTool() {
     [result, setResult] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  useAiTool(
+    "regex",
+    pattern,
+    setPattern,
+    `flags：${flags}\n测试文本：${text}\n替换内容：${replacement}`,
+  );
   useEffect(() => {
     setResult(null);
     setError("");
@@ -1005,6 +1013,7 @@ function SqlTool() {
     [language, setLanguage] = useState("mysql"),
     [output, setOutput] = useState("");
   const { run, error } = useAction();
+  useAiTool("sql", input, setInput, `SQL 方言：${language}`);
   return (
     <>
       <div className="toolbar">
@@ -1071,6 +1080,7 @@ function CronTool() {
     [zone, setZone] = useState("Asia/Shanghai"),
     [result, setResult] = useState(null);
   const { run, error } = useAction();
+  useAiTool("cron", expression, setExpression, `时区：${zone}`);
   return (
     <>
       <div className="fields">
@@ -1199,6 +1209,7 @@ function MarkdownTool() {
   const [input, setInput] = useState(SAMPLE_MD),
     [html, setHtml] = useState(""),
     [error, setError] = useState("");
+  useAiTool("markdown", input, setInput);
   useEffect(() => {
     let active = true;
     const t = setTimeout(async () => {

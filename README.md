@@ -1,6 +1,6 @@
 # DoubleDB 工具箱
 
-面向开发者的 14 款浏览器工具。响应式布局、分类搜索、收藏、深浅色主题，无需登录。输入仅在浏览器内处理，不上传服务器；只将收藏与主题保存在当前域名的 localStorage 中。
+面向开发者的 14 款浏览器工具。响应式布局、分类搜索、收藏、深浅色主题，无需登录。普通工具输入仅在浏览器内处理；只将收藏与主题保存在当前域名的 localStorage 中。个人 AI 助理需单独登录，会将主动提交的问题、选择附带的内容和最近问答发送到配置的模型服务。
 
 - https://doubledatabase.me
 - https://doubledatabase.cn
@@ -40,7 +40,7 @@ npm run test:ui
 npm run build
 ```
 
-React + Vite；正式环境仅需 Nginx 托管 `dist/`，不需要 Node 常驻。依赖由锁文件固定。所有资源在构建中打包，无第三方 CDN 依赖。
+React + Vite；普通工具由 Nginx 托管 `dist/`；可选 AI 助理需要独立的 Node 服务。依赖由锁文件固定。所有资源在构建中打包，无第三方 CDN 依赖。
 
 目录：`src/` 前端、`tests/` 核心与 DOM 交互测试、`deploy/` Nginx 与发布脚本。浏览器支持 `document.modelContext` 时，JSON 页额外暴露 `format_json` 操作；未支持时正常使用页面。其注册和交互已通过模拟上下文测试，未验证原生浏览器 WebMCP 环境。
 
@@ -85,6 +85,28 @@ node deploy/render-nginx.mjs /path/to/private/generated-config
 - YAML 转换会移除注释；大整数保留，高精度 JSON 小数转成 YAML 字符串以避免精度丢失。
 - Cron 采用 cron-parser 的 Unix 语义；不支持 Quartz 年字段。
 - Markdown 过滤脚本、交互标签及图片，链接需用户主动点击；导出 HTML 使用相同过滤逻辑。
-- 正式环境 CSP 禁止网络连接，阻止外部资源加载；无统计追踪脚本。
+- 正式环境 CSP 仅允许同域网络连接以支持 AI 接口，阻止浏览器直连外部模型服务；无统计追踪脚本。
 
 测试范围包含核心转换、加密标准向量、无效输入、正则超时、DOM 操作及 Markdown 注入防护。二维码 DOM 测试模拟 Canvas，真实编码由 qrcode 库执行。开发过程曾检查桌面预览；手机布局由响应式样式实现，未进行真机浏览器验收。
+
+
+## 个人 AI 助理
+
+JSON、JavaScript 正则、SQL、Cron、Markdown 页可使用个人助理。所有人可见入口，只有持有私有访问口令的人能调用模型；无注册系统。两个域名使用独立的 host-only 登录 Cookie（HttpOnly、Secure、SameSite=Strict），8 小时失效；服务重启会使所有会话失效。不要分享口令。
+
+- 默认不附带工具输入。勾选后产生可编辑的内容快照，最多 12,000 字符；不会自动读取 JWT、密码或 HMAC 密钥。
+- 问题最多 4,000 字符，最近最多 4 轮完成的问答作为上下文，总历史最多 24,000 字符；附件不自动重复发送，但模型回答可能引用附件。
+- 回答逐步显示、可停止、可复制；代码需检查确认后填入。JSON、SQL、正则、Cron 通过现有语法/格式检查后才替换输入，支持撤销。语法检查不保证代码逻辑正确，不执行 SQL 或服务器命令。
+- 对话只存在当前页面内存；刷新、切换工具或退出登录后清空。服务不保存问题、回答或请求正文，模型服务方的数据处理政策另行适用。
+- 默认单个并发、每分钟 10 次模型请求、每天 100 次（UTC 日期），失败请求也计次。每次最多 2,048 输出 token、60 秒；这是次数限制，不是金额预算，仍应设置服务商额度。
+- 登录入口全局每分钟最多 8 次尝试。该策略适用于个人版，连续恶意尝试可能短暂阻止本人登录。
+
+### 服务端配置
+
+复制 `deploy/ai.env.example` 到仓库外的私有目录（权限 600），填写 `AI_ORIGINS` 和 `AI_ACCESS_HASH`。访问口令应使用至少 32 字节随机值生成，配置中仅保存其 SHA-256 摘要；不要使用人类可猜测的短密码。`AI_QUOTA_FILE` 指向服务可写的持久文件，用来在重启后保持每日次数限制。
+
+`AI_ENDPOINT` 是完整 HTTPS Chat Completions 接口地址，`AI_MODEL` 为模型标识，`AI_API_KEY` 为服务端密钥。接口采用 `messages`、`stream: true`、`max_tokens` 请求字段，解析 SSE `choices[0].delta.content` 和 `[DONE]`；选定模型后需验证其兼容性。可参考[百炼流式协议文档](https://www.alibabacloud.com/help/en/model-studio/stream)。未配置这三项时，登录后显示“模型尚未配置”，不发出模型请求。
+
+使用 `deploy/ai.service.template`，在私有输出中替换 `AI_ENV_FILE`、`AI_NODE_BIN`、`AI_SERVER_FILE`、`AI_STATE_NAME`；程序及 Node 运行时放在服务可读目录，环境配置由 systemd 读取。`StateDirectory` 对应目录与 `AI_QUOTA_FILE` 保持一致。服务以动态低权限用户运行，只监听 `127.0.0.1:8787`，由 Nginx `/api/ai/` 代理，不向公网开放此端口。服务没有访问 SSH、执行代码或数据库的工具能力。
+
+启动示例（使用私有环境注入配置）：`node server/ai.mjs`。Nginx 配置包含代理与同域 CSP，安装后执行 `nginx -t`。`deploy/deploy.sh` 只发布静态前端；后端文件和 service 由运维独立更新并重启，保留旧版以便回滚。模型配置变化也需重启服务。不要将实际环境文件、口令、服务器路径或地址放入公共仓库。两个域名的所有登录与发送操作都校验精确来源，禁止跨域 Cookie 复用。

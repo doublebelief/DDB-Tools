@@ -1,0 +1,33 @@
+[Unit]
+Description=DoubleDB personal AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=${AI_ENV_FILE}
+ExecStart=${AI_NODE_BIN} ${AI_SERVER_FILE}
+WorkingDirectory=/
+StateDirectory=${AI_STATE_NAME}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=192M
+CPUQuota=50%
+TasksMax=32
+LimitNOFILE=256
+
+[Install]
+WantedBy=multi-user.target
