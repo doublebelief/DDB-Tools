@@ -1,6 +1,14 @@
 import React from "react";
 import { test, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  within,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import NovelReader from "../src/NovelReader.jsx";
 const id = "a".repeat(24);
 const book = {
@@ -17,6 +25,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 function mock({ authenticated = true, empty = false } = {}) {
   const calls = [];
@@ -71,7 +80,12 @@ test("reader navigates, restores progress, renders plain text, and clears on log
   fireEvent.click(await screen.findByRole("button", { name: /测试藏书/ }));
   await screen.findByRole("heading", { name: "第二章" });
   expect(screen.getByLabelText("小说正文").querySelector("img")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "上一节" }));
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "章节切换" })).getByRole(
+      "button",
+      { name: "上一章" },
+    ),
+  );
   await screen.findByRole("heading", { name: "第一章" });
   fireEvent.change(screen.getByLabelText("阅读字号"), {
     target: { value: "25" },
@@ -101,8 +115,145 @@ test("expired session clears book metadata and content on the next chapter reque
     "fetch",
     vi.fn(async () => Response.json({ error: "登录已失效" }, { status: 401 })),
   );
-  fireEvent.click(screen.getByRole("button", { name: "下一节" }));
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "章节切换" })).getByRole(
+      "button",
+      { name: "下一章" },
+    ),
+  );
   await screen.findByLabelText("书架访问口令");
   expect(screen.queryByLabelText("小说正文")).toBeNull();
   expect(screen.queryByText("测试藏书")).toBeNull();
+});
+
+async function openReader() {
+  mock();
+  const view = render(<NovelReader />);
+  fireEvent.click(await screen.findByRole("button", { name: /测试藏书/ }));
+  await screen.findByLabelText("小说正文");
+  return view;
+}
+test("chapter-end controls and persistent navigation respect first/last chapter bounds", async () => {
+  await openReader();
+  const bottom = within(screen.getByRole("navigation", { name: "章末翻章" }));
+  expect(bottom.getByRole("button", { name: "上一章" }).disabled).toBe(true);
+  fireEvent.click(bottom.getByRole("button", { name: "下一章" }));
+  await screen.findByRole("heading", { name: "第二章" });
+  expect(screen.getByRole("button", { name: "已是最后一章" }).disabled).toBe(
+    true,
+  );
+  const persistent = within(
+    screen.getByRole("navigation", { name: "章节切换" }),
+  );
+  expect(persistent.getByRole("button", { name: "下一章" }).disabled).toBe(
+    true,
+  );
+  fireEvent.click(persistent.getByRole("button", { name: "上一章" }));
+  await screen.findByRole("heading", { name: "第一章" });
+});
+test("in-page fullscreen supports Escape, cleanup, and preserves reading position", async () => {
+  const view = await openReader();
+  const article = screen.getByLabelText("小说正文");
+  Object.defineProperty(article, "scrollHeight", {
+    configurable: true,
+    value: 1000,
+  });
+  Object.defineProperty(article, "clientHeight", {
+    configurable: true,
+    value: 200,
+  });
+  article.scrollTop = 400;
+  fireEvent.scroll(article);
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  expect(screen.getByRole("dialog", { name: "全屏阅读" })).toBeTruthy();
+  expect(document.body.style.overflow).toBe("hidden");
+  expect(article.scrollTop).toBe(400);
+  fireEvent.keyDown(screen.getByRole("button", { name: "退出全屏" }), {
+    key: "Escape",
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+  expect(article.scrollTop).toBe(400);
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  view.unmount();
+  expect(document.body.style.overflow).toBe("");
+  expect(document.querySelector("[inert]")).toBeNull();
+});
+test("native fullscreen state follows browser exit and request rejection keeps reading mode", async () => {
+  await openReader();
+  const element = screen.getByLabelText("小说正文").closest(".novel-reader");
+  let current = null;
+  Object.defineProperty(document, "fullscreenElement", {
+    configurable: true,
+    get: () => current,
+  });
+  element.requestFullscreen = vi.fn(async () => {
+    current = element;
+    document.dispatchEvent(new Event("fullscreenchange"));
+  });
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  await waitFor(() => expect(element.requestFullscreen).toHaveBeenCalledOnce());
+  act(() => {
+    current = null;
+    document.dispatchEvent(new Event("fullscreenchange"));
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  element.requestFullscreen = vi
+    .fn()
+    .mockRejectedValue(new Error("not supported"));
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  await waitFor(() => expect(element.requestFullscreen).toHaveBeenCalledOnce());
+  expect(screen.getByRole("button", { name: "退出全屏" })).toBeTruthy();
+  delete document.fullscreenElement;
+});
+test("session expiry exits fullscreen and clears private content", async () => {
+  await openReader();
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ error: "登录已失效" }, { status: 401 })),
+  );
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "章节切换" })).getByRole(
+      "button",
+      { name: "下一章" },
+    ),
+  );
+  await screen.findByLabelText("书架访问口令");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+  expect(screen.queryByLabelText("小说正文")).toBeNull();
+});
+test("late native fullscreen completion is closed after leaving reading mode", async () => {
+  await openReader();
+  const element = screen.getByLabelText("小说正文").closest(".novel-reader");
+  let resolve,
+    current = null;
+  Object.defineProperty(document, "fullscreenElement", {
+    configurable: true,
+    get: () => current,
+  });
+  const exit = vi.fn(async () => {
+    current = null;
+    document.dispatchEvent(new Event("fullscreenchange"));
+  });
+  Object.defineProperty(document, "exitFullscreen", {
+    configurable: true,
+    value: exit,
+  });
+  element.requestFullscreen = () =>
+    new Promise((r) => {
+      resolve = r;
+    });
+  fireEvent.click(screen.getByRole("button", { name: "全屏阅读" }));
+  fireEvent.click(screen.getByRole("button", { name: "退出全屏" }));
+  await act(async () => {
+    current = element;
+    document.dispatchEvent(new Event("fullscreenchange"));
+    resolve();
+  });
+  expect(exit).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  delete document.fullscreenElement;
+  delete document.exitFullscreen;
 });

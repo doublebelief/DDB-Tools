@@ -1593,3 +1593,103 @@ input.control {
     padding: 16px 12px;
   }
 }
+
+.reader-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.reader-heading > div {
+  min-width: 0;
+}
+.reader-heading h2 {
+  overflow-wrap: anywhere;
+}
+.reader-fullscreen-toggle {
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--paper);
+  color: var(--print);
+  border-color: var(--paper-line);
+}
+.reader-chapter-end {
+  margin-top: 24px;
+  padding-left: 0;
+  padding-right: 0;
+}
+.reader-fullscreen,
+.novel-reader:fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.reader-fullscreen .reader-heading,
+.reader-fullscreen .reader-controls,
+.reader-fullscreen > .reader-pagination {
+  flex-shrink: 0;
+}
+.reader-fullscreen .reader-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.reader-fullscreen .reader-loading {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.reader-fullscreen > .error {
+  flex-shrink: 0;
+  margin: 8px 16px;
+}
+.reader-fullscreen > .reader-pagination {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+@media (max-width: 760px) {
+  .reader-heading {
+    gap: 10px;
+  }
+  .reader-heading h2 {
+    font-size: 19px;
+  }
+  .reader-fullscreen-toggle {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+}
+@media (max-height: 500px) {
+  .reader-fullscreen .reader-heading {
+    padding: 8px 16px;
+  }
+  .reader-fullscreen .reader-heading h2 {
+    font-size: 16px;
+    margin-bottom: 0;
+  }
+  .reader-fullscreen .reader-heading span {
+    display: none;
+  }
+  .reader-fullscreen .reader-controls {
+    padding: 6px 16px;
+    flex-wrap: nowrap;
+  }
+  .reader-fullscreen .reader-controls label:first-child {
+    flex-basis: auto;
+  }
+  .reader-fullscreen > .reader-pagination {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .reader-fullscreen .reader-body {
+    padding-top: 16px;
+  }
+}

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useReaderFullscreen } from "./reader-fullscreen.js";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 async function request(route, data, signal) {
   const response = await fetch(`/api/ai/${route}`, {
     method: data === undefined ? "GET" : "POST",
@@ -46,6 +47,8 @@ export default function NovelReader() {
     return ["paper", "light", "dark"].includes(v) ? v : "paper";
   });
   const [progress, setProgress] = useState(0);
+  const reader = useRef(null);
+  const { fullscreen, toggle, leave, onKeyDown } = useReaderFullscreen(reader);
   const content = useRef(null),
     controller = useRef(null),
     position = useRef(null),
@@ -59,6 +62,7 @@ export default function NovelReader() {
       });
   }
   function clearPrivate() {
+    leave();
     persist();
     controller.current?.abort();
     loggedIn.current = false;
@@ -85,6 +89,7 @@ export default function NovelReader() {
     return abort;
   }
   async function shelf() {
+    leave();
     persist();
     const abort = operation();
     setBook(null);
@@ -143,14 +148,14 @@ export default function NovelReader() {
   useEffect(() => {
     savePreference("ddb:reader:theme", theme);
   }, [theme]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!chapter || !content.current) return;
     const element = content.current;
     element.scrollTop =
       (element.scrollHeight - element.clientHeight) *
       (position.current?.fraction || 0);
     element.focus();
-  }, [chapter]);
+  }, [chapter, fullscreen, fontSize]);
   async function login(event) {
     event.preventDefault();
     const abort = operation();
@@ -256,7 +261,7 @@ export default function NovelReader() {
         <span>🔒 私有阅读空间</span>
         <small>书单与正文需登录访问 · 小说不发送给 AI</small>
       </div>
-      {error && (
+      {error && !book && (
         <div className="error" role="alert">
           {error}
         </div>
@@ -368,13 +373,35 @@ export default function NovelReader() {
                 ) && <p className="empty">没有匹配的书籍</p>}
             </>
           ) : (
-            <div className={`novel-reader reader-${theme}`}>
+            <div
+              ref={reader}
+              className={`novel-reader reader-${theme} ${fullscreen ? "reader-fullscreen" : ""}`}
+              onKeyDown={onKeyDown}
+              role={fullscreen ? "dialog" : undefined}
+              aria-modal={fullscreen ? true : undefined}
+              aria-label={fullscreen ? "全屏阅读" : undefined}
+            >
               <header className="reader-heading">
-                <h2>{book.title}</h2>
-                <span>
-                  {book.author || "私人藏书"} · 阅读约 {percentage}%
-                </span>
+                <div>
+                  <h2>{book.title}</h2>
+                  <span>
+                    {book.author || "私人藏书"} · 阅读约 {percentage}%
+                  </span>
+                </div>
+                <button
+                  className="button reader-fullscreen-toggle"
+                  data-fullscreen-toggle
+                  aria-pressed={fullscreen}
+                  onClick={toggle}
+                >
+                  {fullscreen ? "退出全屏" : "全屏阅读"}
+                </button>
               </header>
+              {error && (
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              )}
               <div className="reader-controls">
                 <label>
                   章节目录
@@ -429,20 +456,43 @@ export default function NovelReader() {
                 >
                   <h3>{chapter.title}</h3>
                   <div className="novel-text">{chapter.content}</div>
-                  <p className="chapter-end">— 本节完 —</p>
+                  <p className="chapter-end">— 本章完 —</p>
+                  <nav
+                    className="reader-pagination reader-chapter-end"
+                    aria-label="章末翻章"
+                  >
+                    <button
+                      className="button"
+                      disabled={busy || chapter.index === 0}
+                      onClick={() => changeChapter(chapter.index - 1)}
+                    >
+                      上一章
+                    </button>
+                    <button
+                      className="button primary"
+                      disabled={
+                        busy || chapter.index === book.chapters.length - 1
+                      }
+                      onClick={() => changeChapter(chapter.index + 1)}
+                    >
+                      {chapter.index === book.chapters.length - 1
+                        ? "已是最后一章"
+                        : "下一章"}
+                    </button>
+                  </nav>
                 </article>
               ) : (
                 <div className="reader-loading">
                   {busy ? "正在加载章节…" : "章节加载失败，请从目录重新选择"}
                 </div>
               )}
-              <div className="reader-pagination">
+              <nav className="reader-pagination" aria-label="章节切换">
                 <button
                   className="button"
                   disabled={busy || !chapter || chapter.index === 0}
                   onClick={() => changeChapter(chapter.index - 1)}
                 >
-                  上一节
+                  上一章
                 </button>
                 <span>
                   {chapter ? chapter.index + 1 : "—"} / {book.chapters.length}
@@ -456,9 +506,9 @@ export default function NovelReader() {
                   }
                   onClick={() => changeChapter(chapter.index + 1)}
                 >
-                  下一节
+                  下一章
                 </button>
-              </div>
+              </nav>
             </div>
           )}
           <p className="reading-privacy">
