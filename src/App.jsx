@@ -64,6 +64,7 @@ const Icons = {
   Github: Code2,
 };
 import { tools, groups } from "./catalog";
+const NovelReader = lazy(() => import("./NovelReader.jsx"));
 const Workspace = lazy(() => import("./Workspace.jsx"));
 const Icon = ({ name, ...props }) => {
   const C = Icons[name] || Icons.Code2;
@@ -99,6 +100,7 @@ export default function App() {
     ),
   );
   const searchRef = useRef(null);
+  const isLibrary = route === "novels";
   const tool = tools.find((t) => t.id === route);
   useEffect(() => {
     const f = () => setRoute(currentRoute());
@@ -117,10 +119,12 @@ export default function App() {
     } catch {}
   }, [favorites]);
   useEffect(() => {
-    document.title = tool
-      ? `${tool.name} · DoubleDB 工具箱`
-      : "DoubleDB 工具箱 · 开发常用工具，打开即用";
-  }, [tool]);
+    document.title = isLibrary
+      ? "个人书架 · DoubleDB 工具箱"
+      : tool
+        ? `${tool.name} · DoubleDB 工具箱`
+        : "DoubleDB 工具箱 · 开发常用工具，打开即用";
+  }, [tool, isLibrary]);
   useEffect(() => {
     const f = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -186,7 +190,7 @@ export default function App() {
             {[...groups, "我的收藏"].map((g, i) => (
               <button
                 key={g}
-                className={`nav-item ${!tool && category === g ? "active" : ""}`}
+                className={`nav-item ${!tool && !route && category === g ? "active" : ""}`}
                 onClick={() => {
                   setCategory(g);
                   navigate();
@@ -215,6 +219,18 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <a
+            className={`nav-item ${isLibrary ? "active" : ""}`}
+            href="/novels"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("novels");
+            }}
+          >
+            <Icon name="FileText" />
+            <span>个人书架</span>
+            <Icon name="LockKeyhole" size={14} />
+          </a>
           <div className="nav-label tool-label">快速访问</div>
           <nav className="quick-nav" aria-label="快速访问">
             {tools.slice(0, 4).map((t) => (
@@ -254,13 +270,16 @@ export default function App() {
               <Icon name="Menu" />
             </button>
             <div className="breadcrumb">
-              工具箱 <span>/</span> <strong>{tool?.name || "工作空间"}</strong>
+              工具箱 <span>/</span>{" "}
+              <strong>
+                {isLibrary ? "个人书架" : tool?.name || "工作空间"}
+              </strong>
             </div>
             <div className="top-actions">
-              <AiAssistant id={tool?.id} />
+              {!isLibrary && <AiAssistant id={tool?.id} />}
               <span className="local-label">
                 <Icon name="LockKeyhole" size={14} />
-                工具本地运行
+                {isLibrary ? "个人受限访问" : "工具本地运行"}
               </span>
               <button
                 className="icon-button"
@@ -284,11 +303,25 @@ export default function App() {
             <div className="page-heading">
               <div>
                 <div className="eyebrow">
-                  {tool ? tool.en : "YOUR EVERYDAY DEV TOOLKIT"}
+                  {isLibrary
+                    ? "YOUR PRIVATE READING ROOM"
+                    : tool
+                      ? tool.en
+                      : "YOUR EVERYDAY DEV TOOLKIT"}
                 </div>
-                <h1>{tool ? tool.name : "开发常用工具，打开即用。"}</h1>
+                <h1>
+                  {isLibrary
+                    ? "个人书架"
+                    : tool
+                      ? tool.name
+                      : "开发常用工具，打开即用。"}
+                </h1>
                 <p>
-                  {tool ? tool.desc : "把繁琐的小事交给工具，把时间留给创造。"}
+                  {isLibrary
+                    ? "读到哪里，就从哪里继续。"
+                    : tool
+                      ? tool.desc
+                      : "把繁琐的小事交给工具，把时间留给创造。"}
                 </p>
               </div>
               {tool ? (
@@ -299,7 +332,7 @@ export default function App() {
                   <Icon name="Star" size={17} />
                   {favorites.includes(tool.id) ? "已收藏" : "收藏工具"}
                 </button>
-              ) : (
+              ) : isLibrary ? null : (
                 <span className="tool-count">
                   <b>14</b>
                   <span>款实用工具</span>
@@ -310,6 +343,12 @@ export default function App() {
               <LoadBoundary key={tool.id}>
                 <Suspense fallback={<div className="empty">正在加载工具…</div>}>
                   <Workspace key={tool.id} id={tool.id} />
+                </Suspense>
+              </LoadBoundary>
+            ) : isLibrary ? (
+              <LoadBoundary>
+                <Suspense fallback={<div className="empty">正在加载书架…</div>}>
+                  <NovelReader />
                 </Suspense>
               </LoadBoundary>
             ) : route ? (

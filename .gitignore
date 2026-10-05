@@ -14,3 +14,7 @@ test-results/
 *.local
 deploy/generated/
 *.bundle
+
+# Private reading library and source books belong outside this repository.
+novels/
+private-library/

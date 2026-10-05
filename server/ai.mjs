@@ -1,3 +1,5 @@
+import pathModule from "node:path";
+import { libraryResponse } from "./library.mjs";
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
@@ -23,6 +25,8 @@ export function configuration(env = process.env) {
     throw new Error("AI_ACCESS_HASH must be a SHA-256 hex digest");
   if (!env.AI_QUOTA_FILE?.startsWith("/"))
     throw new Error("AI_QUOTA_FILE must be an absolute persistent path");
+  if (env.AI_LIBRARY_DIR && !pathModule.isAbsolute(env.AI_LIBRARY_DIR))
+    throw new Error("AI_LIBRARY_DIR must be an absolute private directory");
   const thinking = env.AI_ENABLE_THINKING || "";
   if (!["", "true", "false"].includes(thinking))
     throw new Error("AI_ENABLE_THINKING must be true, false or empty");
@@ -48,6 +52,9 @@ export function configuration(env = process.env) {
     apiKey: env.AI_API_KEY || "",
     model: env.AI_MODEL || "",
     quotaFile: env.AI_QUOTA_FILE || "",
+    libraryDir:
+      env.AI_LIBRARY_DIR ||
+      pathModule.join(pathModule.dirname(env.AI_QUOTA_FILE), "library"),
     timeout: 60000,
     dailyLimit: 100,
   };
@@ -207,7 +214,10 @@ export function createAiServer(
       if (!config.origins.includes(hostOrigin))
         throw problem(403, "来源不受信任");
       const path = req.url;
+      const isLibrary =
+        path === "/api/ai/library" || path.startsWith("/api/ai/library/");
       if (
+        !isLibrary &&
         ![
           "/api/ai/session",
           "/api/ai/login",
@@ -216,7 +226,10 @@ export function createAiServer(
         ].includes(path)
       )
         throw problem(404, "接口不存在");
-      if (req.method !== (path === "/api/ai/session" ? "GET" : "POST"))
+      if (
+        req.method !==
+        (path === "/api/ai/session" || isLibrary ? "GET" : "POST")
+      )
         throw problem(405, "请求方式无效");
       if (
         req.method === "POST" &&
@@ -260,7 +273,11 @@ export function createAiServer(
         );
         return json(200, { authenticated: true, ready: ready() });
       }
-      if (!authenticated) throw problem(401, "请先登录个人 AI 助理");
+      if (!authenticated) throw problem(401, "请先登录个人空间");
+      if (isLibrary) {
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+        return json(200, await libraryResponse(config.libraryDir, path));
+      }
       if (path === "/api/ai/logout") {
         sessions.delete(digest(token));
         if (active?.token === token) active.controller.abort();
